@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-import { sendMessage, broadcastFromCSV, client } from "./whatsapp.js";
+import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
 import http from "http";
 import { Server } from "socket.io";
 
