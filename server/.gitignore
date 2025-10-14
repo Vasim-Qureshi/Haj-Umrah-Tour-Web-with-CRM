@@ -12,7 +12,8 @@ dist
 dist-ssr
 *.local
 .env
-
+.wwebjs_auth
+.wwebjs_cache
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
