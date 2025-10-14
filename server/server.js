@@ -10,7 +10,9 @@ import { Server } from "socket.io";
 
 dotenv.config();
 const app = express();
-const upload = multer({ dest: "uploads/" });
+
+const storage = multer.memoryStorage(); // ✅ file RAM me store hogi
+const upload = multer({ storage });
 
 // ✅ Create HTTP + Socket.io server
 const server = http.createServer(app);
