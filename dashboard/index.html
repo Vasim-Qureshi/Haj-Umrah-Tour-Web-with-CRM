@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="hi">
+
+<head>
+  <meta charset="utf-8">
+  <title>Dashboard - सफ़र मक्का उमरा टूर ट्रैवल</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: 'Noto Sans Devanagari', sans-serif;
+      background: #f8fafc;
+      padding: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+
+    th {
+      background: #7c3aed;
+      color: #fff;
+    }
+
+    tr:nth-child(even) {
+      background: #f2f2f2;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>📋 बुकिंग डैशबोर्ड</h2>
+  <table id="bookingTable">
+    <thead>
+      <tr>
+        <th>नाम</th>
+        <th>फ़ोन</th>
+        <th>प्लान</th>
+        <th>दिन</th>
+        <th>व्यक्ति</th>
+        <th>ईमेल</th>
+        <th>संदेश</th>
+        <th>तारीख़</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function loadBookings() {
+      const res = await fetch("http://localhost:5000/api/bookings");
+      const data = await res.json();
+      const tbody = document.querySelector("#bookingTable tbody");
+      tbody.innerHTML = "";
+      data.forEach(b => {
+        const row = `<tr>
+        <td>${b.name}</td>
+        <td>${b.phone}</td>
+        <td>${b.plan}</td>
+        <td>${b.duration}</td>
+        <td>${b.persons}</td><td>${b.email || '-'}</td>
+        <td>${b.message || '-'}</td>
+        <td>${new Date(b.date).toLocaleDateString("hi-IN")}</td>
+      </tr>`;
+        tbody.innerHTML += row;
+      });
+    }
+    loadBookings();
+  </script>
+</body>
+
+</html>
