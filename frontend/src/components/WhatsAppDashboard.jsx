@@ -17,13 +17,14 @@ const WhatsAppDashboard = () => {
   const [previewRows, setPreviewRows] = useState([]);
 
   const [logs, setLogs] = useState([]);
+  const URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000';
 
   // Poll server status every 3s
   useEffect(() => {
     let mounted = true;
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://localhost:5000/status');
+        const res = await fetch(`${URL}/status`);
         const data = await res.json();
         if (mounted) setStatus(data);
       } catch (err) {
@@ -38,7 +39,7 @@ const WhatsAppDashboard = () => {
 
   // Real-time socket connection
   useEffect(() => {
-    const socket = io("http://localhost:5000", {
+    const socket = io(URL, {
       transports: ["websocket"], // ensure websocket fallback
     });
 
@@ -73,7 +74,7 @@ const WhatsAppDashboard = () => {
     if (!number || !message) return addLog('Number and message are required');
     setIsSending(true);
     try {
-      const res = await fetch('http://localhost:5000/send-message', {
+      const res = await fetch(`${URL}/send-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: number.replace(/[^0-9]/g, ''), message }),
@@ -123,7 +124,7 @@ const WhatsAppDashboard = () => {
       // If you want to attach media from server, provide mediaPath field (optional)
       // form.append('mediaPath', './files/flyer.jpg');
 
-      const res = await fetch('http://localhost:5000/broadcast', { method: 'POST', body: form });
+      const res = await fetch(`${URL}/broadcast`, { method: 'POST', body: form });
       const data = await res.json();
       if (data.success) {
         addLog(`Broadcast started: ${csvFile.name} (${previewRows.length || 'unknown'} previewed)`);
