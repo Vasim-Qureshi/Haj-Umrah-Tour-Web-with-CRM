@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
-const API_URL = "http://localhost:5000/api/bookings"; // 🔗 Backend API base
-const SOCKET_URL = "http://localhost:5000"; // ⚡ Socket.io server URL
+const URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5000';
+const API_URL = `${URL}/api/bookings`; // 🔗 Backend API base
+const SOCKET_URL = URL; // ⚡ Socket.io server URL
 
 const Dashboard = () => {
   const [bookings, setBookings] = useState([]);
