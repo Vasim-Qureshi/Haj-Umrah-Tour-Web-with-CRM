@@ -1,6 +1,0 @@
-2025/10/14-12:57:07.168 142c Reusing MANIFEST C:\Web-Projects\safarumrah\server\.wwebjs_auth\session\Default\Local Storage\leveldb/MANIFEST-000001
-2025/10/14-12:57:07.168 142c Recovering log #3
-2025/10/14-12:57:07.170 142c Reusing old log C:\Web-Projects\safarumrah\server\.wwebjs_auth\session\Default\Local Storage\leveldb/000003.log 
-2025/10/14-12:59:11.705 142c Level-0 table #5: started
-2025/10/14-12:59:11.712 142c Level-0 table #5: 19949 bytes OK
-2025/10/14-12:59:11.718 142c Delete type=0 #3
