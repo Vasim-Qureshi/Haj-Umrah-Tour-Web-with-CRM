@@ -4,14 +4,15 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
 import http from "http";
 import { Server } from "socket.io";
+import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
 
 dotenv.config();
 const app = express();
 
-const storage = multer.memoryStorage(); // ✅ file RAM me store hogi
+// ✅ Multer - file memory storage
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 // ✅ Create HTTP + Socket.io server
@@ -23,16 +24,18 @@ const io = new Server(server, {
   },
 });
 
+global.io = io; // ✅ make io globally accessible (used in whatsApp.js)
+
 app.use(cors());
 app.use(express.json());
 
 // ✅ MongoDB Connection
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected ✅"))
-  .catch((err) => console.error("MongoDB Error ❌", err));
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// ✅ Booking Schema (Updated for Lead Dashboard)
+// ✅ Booking Schema (Lead Dashboard)
 const bookingSchema = new mongoose.Schema({
   name: { type: String, required: true },
   phone: { type: String, required: true },
@@ -51,13 +54,18 @@ const bookingSchema = new mongoose.Schema({
 
 const Booking = mongoose.model("Booking", bookingSchema);
 
-// ✅ Socket.io Connection
+//
+// ─── SOCKET.IO CONNECTION ────────────────────────────────────────────────
+//
 io.on("connection", (socket) => {
   console.log("🟢 Dashboard connected via socket.io");
-  socket.on("disconnect", () => console.log("🔴 Dashboard disconnected"));
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Dashboard disconnected");
+  });
 });
 
-// ✅ Emit message to dashboard
+// ✅ Emit log to dashboard
 const sendLogToDashboard = (msg) => io.emit("log", msg);
 
 //
@@ -77,7 +85,7 @@ app.post("/api/bookings", async (req, res) => {
   }
 });
 
-// ✅ Read (Get All Leads)
+// ✅ Read (All Leads)
 app.get("/api/bookings", async (req, res) => {
   try {
     const data = await Booking.find().sort({ date: -1 });
@@ -88,7 +96,7 @@ app.get("/api/bookings", async (req, res) => {
   }
 });
 
-// ✅ Read (Get Single Lead)
+// ✅ Read (Single Lead)
 app.get("/api/bookings/:id", async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -99,7 +107,7 @@ app.get("/api/bookings/:id", async (req, res) => {
   }
 });
 
-// ✅ Update (Edit Lead)
+// ✅ Update (Lead)
 app.put("/api/bookings/:id", async (req, res) => {
   try {
     const updated = await Booking.findByIdAndUpdate(req.params.id, req.body, {
@@ -115,7 +123,7 @@ app.put("/api/bookings/:id", async (req, res) => {
   }
 });
 
-// ✅ Delete (Remove Lead)
+// ✅ Delete (Lead)
 app.delete("/api/bookings/:id", async (req, res) => {
   try {
     const deleted = await Booking.findByIdAndDelete(req.params.id);
@@ -130,15 +138,15 @@ app.delete("/api/bookings/:id", async (req, res) => {
 });
 
 //
-// ─── WHATSAPP EXISTING ROUTES ─────────────────────────────────────
+// ─── WHATSAPP ROUTES ─────────────────────────────────────────────
 //
 
-// Root Route
+// Root
 app.get("/", (req, res) => {
   res.send("🕌 WhatsApp Automation API is Running - Safar Makkah Tours");
 });
 
-// Send single WhatsApp message
+// Send single message
 app.post("/send-message", async (req, res) => {
   const { number, message } = req.body;
   if (!number || !message) {
@@ -174,7 +182,7 @@ app.get("/status", async (req, res) => {
 });
 
 //
-// ─── START SERVER ─────────────────────────────────────────────────
+// ─── SERVER START ─────────────────────────────────────────────────
 //
 server.listen(process.env.PORT, () => {
   console.log(`✅ Server & Socket.io running on port ${process.env.PORT}`);
