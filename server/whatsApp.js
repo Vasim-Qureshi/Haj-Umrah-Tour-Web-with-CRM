@@ -1,7 +1,8 @@
 // whatsapp.js 
 import pkg from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
-import fs from 'fs'; import csv from 'csv-parser';
+import fs from 'fs';
+import csv from 'csv-parser';
 import { sendLogToDashboard } from './server.js';
 
 const { Client, LocalAuth, MessageMedia } = pkg;
@@ -12,18 +13,12 @@ const client = new Client({
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   },
 });
-/*
-// Generate QR for login
-client.on('qr', (qr) => {
-  console.log('📱 Scan QR Code to log in:');
-  qrcode.generate(qr, { small: true });
-});
-*/
+
 // whatsapp.js
 client.on('qr', (qr) => {
   console.log('📱 QR Code generated');
   sendLogToDashboard('📱 QR Code generated, sending to client...');
-  
+
   // ✅ QR emit to frontend via socket.io
   global.io.emit('qr', qr);
 });

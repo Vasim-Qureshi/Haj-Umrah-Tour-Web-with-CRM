@@ -1,8 +1,9 @@
 // server/server.js
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import dbConnection from "./config/db.js";
+import Booking from "./models/bookingSchema.js";
 import multer from "multer";
 import http from "http";
 import { Server } from "socket.io";
@@ -10,6 +11,12 @@ import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
 
 dotenv.config();
 const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+const dbConn = dbConnection; // ✅ connect to MongoDB
+
 
 // ✅ Multer - file memory storage
 const storage = multer.memoryStorage();
@@ -25,34 +32,6 @@ const io = new Server(server, {
 });
 
 global.io = io; // ✅ make io globally accessible (used in whatsApp.js)
-
-app.use(cors());
-app.use(express.json());
-
-// ✅ MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
-
-// ✅ Booking Schema (Lead Dashboard)
-const bookingSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  phone: { type: String, required: true },
-  plan: { type: String },
-  duration: { type: String },
-  email: { type: String },
-  persons: { type: Number },
-  message: { type: String },
-  leadStage: {
-    type: String,
-    enum: ["New", "Contacted", "Follow Up", "Converted", "Lost"],
-    default: "New",
-  },
-  date: { type: Date, default: Date.now },
-});
-
-const Booking = mongoose.model("Booking", bookingSchema);
 
 //
 // ─── SOCKET.IO CONNECTION ────────────────────────────────────────────────
