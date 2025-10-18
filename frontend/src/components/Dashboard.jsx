@@ -84,7 +84,7 @@ const Dashboard = () => {
     if (!confirmDelete) return;
 
     try {
-      const res = await fetch(`${API_URL}/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_URL}/${id}`, { method: "DELETE", credentials: "include" });
       if (res.ok) {
         console.log("🗑️ Lead deleted");
       }
@@ -121,6 +121,7 @@ const Dashboard = () => {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(formData),
+          credentials: "include",
         });
       } else {
         // Add Lead
