@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
-const URL = import.meta.env.VITE_BASE_URL-v2 || 'http://localhost:5000';
+const URL = import.meta.env.VITE_BASE_URL_V2 || 'http://localhost:5000';
 const API_URL = `${URL}/api/bookings`; // 🔗 Backend API base
 const SOCKET_URL = URL; // ⚡ Socket.io server URL
 

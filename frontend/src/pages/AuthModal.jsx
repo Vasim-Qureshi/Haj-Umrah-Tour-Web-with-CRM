@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const URL = import.meta.env.VITE_BASE_URL-v2 || "http://localhost:5000";
+const URL = import.meta.env.VITE_BASE_URL_V2 || "http://localhost:5000";
 
 // ✅ helper: set cookie
 function setCookie(name, value, days) {
