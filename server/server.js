@@ -15,8 +15,10 @@ import { requireAuth, requireRole } from "./middlewares/authMiddleware.js";
 dotenv.config();
 const app = express();
 
+const allowedOrigins = ["http://localhost:5173", "https://umrah-crm.vercel.app", "https://umrah-crm-v2.vercel.app"];
+
 app.use(cors({
-  origin: "http://localhost:5173", // allow frontend
+  origin: allowedOrigins, // allow frontend
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,              // allow cookies
 }));
