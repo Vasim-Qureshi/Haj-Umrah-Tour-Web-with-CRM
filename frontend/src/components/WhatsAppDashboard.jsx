@@ -24,7 +24,7 @@ const WhatsAppDashboard = () => {
   const [logs, setLogs] = useState([]);
   const [qr, setQr] = useState(null);
 
-  const URL = import.meta.env.VITE_BASE_URL || "http://localhost:5000";
+  const URL = import.meta.env.VITE_BASE_URL || import.meta.env.VITE_API_URL-v2 || "http://localhost:5000";
 
   // 🧩 Poll server for WhatsApp connection status every 3s
   useEffect(() => {
