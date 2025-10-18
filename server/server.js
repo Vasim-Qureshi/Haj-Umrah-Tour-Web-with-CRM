@@ -96,7 +96,7 @@ app.get("/api/bookings", requireAuth, requireRole("admin"), async (req, res) => 
 });
 
 // ✅ Read (Single Lead)
-app.get("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
+app.get("/api/bookings/:id", async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Lead not found" });
@@ -107,7 +107,7 @@ app.get("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res)
 });
 
 // ✅ Update (Lead)
-app.put("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
+app.put("/api/bookings/:id", async (req, res) => {
   try {
     const updated = await Booking.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -123,7 +123,7 @@ app.put("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res)
 });
 
 // ✅ Delete (Lead)
-app.delete("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
+app.delete("/api/bookings/:id", async (req, res) => {
   try {
     const deleted = await Booking.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: "Lead not found" });
