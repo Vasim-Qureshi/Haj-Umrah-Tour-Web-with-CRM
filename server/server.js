@@ -18,7 +18,13 @@ const app = express();
 const allowedOrigins = ["http://localhost:5173", "https://umrah-crm.vercel.app", "https://umrah-crm-v2.vercel.app"];
 
 app.use(cors({
-  origin: allowedOrigins, // allow frontend
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, origin);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,              // allow cookies
 }));
