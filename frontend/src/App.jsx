@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import WhatsAppDashboard from "./components/WhatsAppDashboard.jsx";
 import Dashboard from "./components/Dashboard.jsx";
+import AuthModal from "./pages/AuthModal.jsx";
 
 function App() {
   return (
@@ -12,10 +13,14 @@ function App() {
         <Link to="/whatsapp" className="text-blue-600 hover:underline">
           WhatsApp Dashboard
         </Link>
+        <Link to="/login" className="text-blue-600 hover:underline">
+          Login
+        </Link>
       </nav>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/whatsapp" element={<WhatsAppDashboard />} />
+        <Route path="/login" element={<AuthModal />} />
       </Routes>
     </Router>
   );

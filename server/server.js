@@ -1,6 +1,7 @@
 // server/server.js
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import dbConnection from "./config/db.js";
 import Booking from "./models/bookingSchema.js";
@@ -8,15 +9,22 @@ import multer from "multer";
 import http from "http";
 import { Server } from "socket.io";
 import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
+import authRoutes from "./routes/authRoutes.js";
+import { requireAuth, requireRole } from "./middlewares/authMiddleware.js";
 
 dotenv.config();
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: "http://localhost:5173", // your React app origin
+  credentials: true,              // allow cookies
+}));
+
 app.use(express.json());
 
-const dbConn = dbConnection; // ✅ connect to MongoDB
+app.use(cookieParser());
 
+const dbConn = dbConnection; // ✅ connect to MongoDB
 
 // ✅ Multer - file memory storage
 const storage = multer.memoryStorage();
@@ -47,6 +55,9 @@ io.on("connection", (socket) => {
 // ✅ Emit log to dashboard
 const sendLogToDashboard = (msg) => io.emit("log", msg);
 
+// ─── AUTH ROUTES ──────────────────────────────────────────────────────
+app.use("/api", authRoutes);
+
 //
 // ─── LEAD CRUD APIs ────────────────────────────────────────────────
 //
@@ -65,7 +76,7 @@ app.post("/api/bookings", async (req, res) => {
 });
 
 // ✅ Read (All Leads)
-app.get("/api/bookings", async (req, res) => {
+app.get("/api/bookings", requireAuth, requireRole("admin"), async (req, res) => {
   try {
     const data = await Booking.find().sort({ date: -1 });
     res.json(data);
@@ -76,7 +87,7 @@ app.get("/api/bookings", async (req, res) => {
 });
 
 // ✅ Read (Single Lead)
-app.get("/api/bookings/:id", async (req, res) => {
+app.get("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Lead not found" });
@@ -87,7 +98,7 @@ app.get("/api/bookings/:id", async (req, res) => {
 });
 
 // ✅ Update (Lead)
-app.put("/api/bookings/:id", async (req, res) => {
+app.put("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
   try {
     const updated = await Booking.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -103,7 +114,7 @@ app.put("/api/bookings/:id", async (req, res) => {
 });
 
 // ✅ Delete (Lead)
-app.delete("/api/bookings/:id", async (req, res) => {
+app.delete("/api/bookings/:id", requireAuth, requireRole("admin"), async (req, res) => {
   try {
     const deleted = await Booking.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: "Lead not found" });

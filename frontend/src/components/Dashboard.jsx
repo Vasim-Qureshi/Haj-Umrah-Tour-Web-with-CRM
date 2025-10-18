@@ -25,7 +25,7 @@ const Dashboard = () => {
   // ✅ Fetch all bookings from API
   const loadBookings = async () => {
     try {
-      const res = await fetch(API_URL);
+      const res = await fetch(API_URL, { credentials: "include" });
       const data = await res.json();
       setBookings(data);
     } catch (err) {
