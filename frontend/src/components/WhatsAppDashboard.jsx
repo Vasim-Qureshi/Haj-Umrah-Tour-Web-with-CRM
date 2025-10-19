@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 
-// ✅ Universal import fix for QRCode (works in Vite + React 19)
+// ✅ QRCode fix for React 19 + Vite
 import * as QRCodeModule from "qrcode.react";
 const QRCode =
   QRCodeModule.default ||
@@ -9,24 +9,25 @@ const QRCode =
   QRCodeModule.QRCodeSVG ||
   QRCodeModule.QRCode;
 
-// ──────────────────────────────────────────────
-// WhatsAppDashboard Component
-// ──────────────────────────────────────────────
 const WhatsAppDashboard = () => {
   const [status, setStatus] = useState({ connected: false, user: null });
   const [number, setNumber] = useState("");
   const [message, setMessage] = useState("");
+  const [file, setFile] = useState(null); // ✅ single message media
   const [isSending, setIsSending] = useState(false);
+
   const [csvFile, setCsvFile] = useState(null);
   const [broadcastMsg, setBroadcastMsg] = useState("");
+  const [broadcastFile, setBroadcastFile] = useState(null); // ✅ broadcast media
   const [broadcasting, setBroadcasting] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
+
   const [logs, setLogs] = useState([]);
   const [qr, setQr] = useState(null);
 
   const URL = import.meta.env.VITE_BASE_URL_V2 || "http://localhost:5000";
 
-  // 🧩 Poll server for WhatsApp connection status every 3s
+  // 🧩 Poll server status every 3 seconds
   useEffect(() => {
     let active = true;
     const fetchStatus = async () => {
@@ -38,7 +39,6 @@ const WhatsAppDashboard = () => {
         if (active) setStatus({ connected: false, user: null });
       }
     };
-
     fetchStatus();
     const timer = setInterval(fetchStatus, 3000);
     return () => {
@@ -47,24 +47,19 @@ const WhatsAppDashboard = () => {
     };
   }, []);
 
-  // 🔌 Real-time socket connection
+  // 🔌 Socket.io connection
   useEffect(() => {
     const socket = io(URL, { transports: ["websocket"] });
 
     socket.on("connect", () => addLog("🟢 Connected to backend via Socket.io"));
+    socket.on("disconnect", () => addLog("🔴 Disconnected from server"));
     socket.on("connect_error", (err) =>
       addLog(`❌ Socket error: ${err.message}`)
     );
-    socket.on("disconnect", () => addLog("🔴 Disconnected from server"));
 
-    // Listen for QR + ready events
     socket.on("qr", (qrData) => {
       setQr(qrData);
       addLog("📱 QR Code received — please scan to login.");
-    });
-    socket.on("ready", (msg) => {
-      setQr(null);
-      addLog(msg);
     });
     socket.on("log", (msg) => addLog(msg));
 
@@ -77,22 +72,27 @@ const WhatsAppDashboard = () => {
       ...prev.slice(0, 199),
     ]);
 
-  // ─── Send Single Message ─────────────────────
+  // ─── Send Single Message (with optional media) ─────────────────────
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!number || !message) return addLog("⚠️ Number and message required");
+    if (!number || !message)
+      return addLog("⚠️ Number and message required.");
+
     setIsSending(true);
     try {
-      const res = await fetch(`${URL}/send-message`, {
+      const form = new FormData();
+      form.append("number", number.replace(/[^0-9]/g, ""));
+      form.append("message", message);
+      if (file) form.append("file", file);
+
+      const res = await fetch(`${URL}/send-media`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          number: number.replace(/[^0-9]/g, ""),
-          message,
-        }),
+        body: form,
       });
       const data = await res.json();
-      if (data.success) addLog(`✅ Message sent to ${number}`);
+
+      if (data.success)
+        addLog(`✅ Message${file ? " + media" : ""} sent to ${number}`);
       else addLog(`❌ Send failed: ${JSON.stringify(data)}`);
     } catch (err) {
       addLog(`Error: ${err.message}`);
@@ -101,7 +101,7 @@ const WhatsAppDashboard = () => {
     }
   };
 
-  // ─── Broadcast CSV ───────────────────────────
+  // ─── Broadcast CSV (with optional media) ───────────────────────────
   const handleCsvSelect = (file) => {
     setCsvFile(file);
     setPreviewRows([]);
@@ -121,16 +121,26 @@ const WhatsAppDashboard = () => {
   const handleBroadcast = async (e) => {
     e.preventDefault();
     if (!csvFile || !broadcastMsg)
-      return addLog("⚠️ CSV file and message required");
+      return addLog("⚠️ CSV file and message required.");
+
     setBroadcasting(true);
     try {
       const form = new FormData();
       form.append("file", csvFile);
       form.append("message", broadcastMsg);
-      const res = await fetch(`${URL}/broadcast`, { method: "POST", body: form });
+      if (broadcastFile) form.append("mediaFile", broadcastFile); // ✅ attach media
+
+      const res = await fetch(`${URL}/broadcast`, {
+        method: "POST",
+        body: form,
+      });
       const data = await res.json();
+
       if (data.success)
-        addLog(`🚀 Broadcast started (${csvFile.name})`);
+        addLog(
+          `🚀 Broadcast started (${csvFile.name})${broadcastFile ? " + media" : ""
+          }`
+        );
       else addLog(`❌ Broadcast error: ${JSON.stringify(data)}`);
     } catch (err) {
       addLog(`Error: ${err.message}`);
@@ -153,11 +163,10 @@ const WhatsAppDashboard = () => {
             <div>
               Status:{" "}
               <span
-                className={`${
-                  status.connected ? "text-green-600" : "text-red-500"
-                }`}
+                className={`${status.connected ? "text-green-600" : "text-red-500"
+                  }`}
               >
-                {status.connected ? "Connected" : "Disconnected"}
+                {status.connected ? "Connected ✅" : "Disconnected ❌"}
               </span>
             </div>
             {status.user && (
@@ -198,6 +207,7 @@ const WhatsAppDashboard = () => {
                 className="w-full border px-3 py-2 rounded-md"
                 placeholder="919876543210"
               />
+
               <label className="block text-xs text-gray-600">Message</label>
               <textarea
                 value={message}
@@ -206,18 +216,35 @@ const WhatsAppDashboard = () => {
                 className="w-full border px-3 py-2 rounded-md"
                 placeholder="Message text"
               />
-              <div className="flex items-center gap-3">
+
+              {/* ✅ Media Upload */}
+              <label className="block text-xs text-gray-600 mt-3">
+                Attach Media (optional)
+              </label>
+              <input
+                type="file"
+                accept="image/*,application/pdf,video/*"
+                onChange={(e) => setFile(e.target.files[0])}
+              />
+              {file && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Selected: {file.name}
+                </p>
+              )}
+
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   disabled={isSending}
                   className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
                 >
-                  {isSending ? "Sending..." : "Send"}
+                  {isSending ? "Sending..." : "Send Message"}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setNumber("");
                     setMessage("");
+                    setFile(null);
                   }}
                   className="px-3 py-2 border rounded-md"
                 >
@@ -227,9 +254,9 @@ const WhatsAppDashboard = () => {
             </form>
           </section>
 
-          {/* Broadcast */}
+          {/* Broadcast Section */}
           <section className="bg-white p-5 rounded-2xl shadow-sm">
-            <h2 className="font-semibold mb-2">Broadcast (CSV)</h2>
+            <h2 className="font-semibold mb-2">Broadcast (CSV + Media)</h2>
             <form onSubmit={handleBroadcast} className="space-y-3">
               <label className="block text-xs text-gray-600">
                 Upload CSV (number,name)
@@ -261,7 +288,7 @@ const WhatsAppDashboard = () => {
                 </div>
               )}
 
-              <label className="block text-xs text-gray-600">
+              <label className="block text-xs text-gray-600 mt-2">
                 Broadcast Message
               </label>
               <textarea
@@ -271,7 +298,23 @@ const WhatsAppDashboard = () => {
                 className="w-full border px-3 py-2 rounded-md"
                 placeholder="Message to broadcast"
               />
-              <div className="flex items-center gap-3">
+
+              {/* ✅ Broadcast Media Upload */}
+              <label className="block text-xs text-gray-600 mt-3">
+                Attach Media for Broadcast (optional)
+              </label>
+              <input
+                type="file"
+                accept="image/*,application/pdf,video/*"
+                onChange={(e) => setBroadcastFile(e.target.files[0])}
+              />
+              {broadcastFile && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Selected: {broadcastFile.name}
+                </p>
+              )}
+
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   disabled={broadcasting}
                   className="bg-green-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
@@ -284,6 +327,7 @@ const WhatsAppDashboard = () => {
                     setCsvFile(null);
                     setPreviewRows([]);
                     setBroadcastMsg("");
+                    setBroadcastFile(null);
                   }}
                   className="px-3 py-2 border rounded-md"
                 >
@@ -296,7 +340,7 @@ const WhatsAppDashboard = () => {
           {/* Logs */}
           <section className="bg-white p-5 rounded-2xl shadow-sm md:col-span-2">
             <h2 className="font-semibold mb-2">Server Logs</h2>
-            <div className="bg-black text-white p-3 rounded-md h-48 overflow-auto text-xs">
+            <div className="bg-black text-white p-3 rounded-md h-56 overflow-auto text-xs">
               {logs.length === 0 && (
                 <div className="text-gray-400">No activity yet.</div>
               )}

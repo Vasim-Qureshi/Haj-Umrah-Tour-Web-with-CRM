@@ -8,51 +8,76 @@ import Booking from "./models/bookingSchema.js";
 import multer from "multer";
 import http from "http";
 import { Server } from "socket.io";
-import { sendMessage, broadcastFromCSV, client } from "./whatsApp.js";
+import { sendMessage, broadcastFromCSV, client, uploadMediaToCloud } from "./whatsApp.js";
 import authRoutes from "./routes/authRoutes.js";
 import { requireAuth, requireRole } from "./middlewares/authMiddleware.js";
+import cloudinaryPackage from 'cloudinary';
+import path from 'path';
+import fse from 'fs-extra';
 
 dotenv.config();
+
+// configure cloudinary (optional here)
+const cloudinary = cloudinaryPackage.v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 const app = express();
 
-const allowedOrigins = ["http://localhost:5173", "https://umrah-crm.vercel.app", "https://umrah-crm-v2.vercel.app"];
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://umrah-crm.vercel.app",
+  "https://umrah-crm-v2.vercel.app"
+];
 
 app.use(cors({
   origin: (origin, callback) => {
+    // allow Postman / server-to-server (no origin)
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, origin);
+      callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true,              // allow cookies
+  credentials: true,
 }));
 
 app.use(express.json());
-
 app.use(cookieParser());
 
-const dbConn = dbConnection; // ✅ connect to MongoDB
+const dbConn = dbConnection; // ensure dbConnection connects inside that module
 
-// ✅ Multer - file memory storage
-const storage = multer.memoryStorage();
+// multer disk storage for uploads (CSV / media)
+const tmpUploadsDir = path.resolve(process.cwd(), 'tmp', 'uploads');
+fse.ensureDirSync(tmpUploadsDir);
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, tmpUploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const ts = Date.now();
+    cb(null, `${ts}-${file.originalname}`);
+  }
+});
 const upload = multer({ storage });
 
-// ✅ Create HTTP + Socket.io server
+// Create HTTP + Socket.io server
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // allow frontend
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });
 
-global.io = io; // ✅ make io globally accessible (used in whatsApp.js)
+global.io = io; // make io globally accessible (used in whatsapp.js)
 
-//
-// ─── SOCKET.IO CONNECTION ────────────────────────────────────────────────
-//
+// SOCKET.IO connection
 io.on("connection", (socket) => {
   console.log("🟢 Dashboard connected via socket.io");
 
@@ -61,17 +86,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// ✅ Emit log to dashboard
+// Emit log to dashboard
 const sendLogToDashboard = (msg) => io.emit("log", msg);
 
-// ─── AUTH ROUTES ──────────────────────────────────────────────────────
+// AUTH ROUTES
 app.use("/api", authRoutes);
 
-//
-// ─── LEAD CRUD APIs ────────────────────────────────────────────────
-//
-
-// ✅ Create (Add Lead)
+// LEAD CRUD APIs (same as your original)
 app.post("/api/bookings", async (req, res) => {
   try {
     const booking = new Booking(req.body);
@@ -84,7 +105,6 @@ app.post("/api/bookings", async (req, res) => {
   }
 });
 
-// ✅ Read (All Leads)
 app.get("/api/bookings", requireAuth, requireRole("admin"), async (req, res) => {
   try {
     const data = await Booking.find().sort({ date: -1 });
@@ -95,7 +115,6 @@ app.get("/api/bookings", requireAuth, requireRole("admin"), async (req, res) => 
   }
 });
 
-// ✅ Read (Single Lead)
 app.get("/api/bookings/:id", async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -106,7 +125,6 @@ app.get("/api/bookings/:id", async (req, res) => {
   }
 });
 
-// ✅ Update (Lead)
 app.put("/api/bookings/:id", async (req, res) => {
   try {
     const updated = await Booking.findByIdAndUpdate(req.params.id, req.body, {
@@ -122,7 +140,6 @@ app.put("/api/bookings/:id", async (req, res) => {
   }
 });
 
-// ✅ Delete (Lead)
 app.delete("/api/bookings/:id", async (req, res) => {
   try {
     const deleted = await Booking.findByIdAndDelete(req.params.id);
@@ -136,16 +153,12 @@ app.delete("/api/bookings/:id", async (req, res) => {
   }
 });
 
-//
-// ─── WHATSAPP ROUTES ─────────────────────────────────────────────
-//
-
-// Root
+// WHATSAPP ROUTES
 app.get("/", (req, res) => {
   res.send("🕌 WhatsApp Automation API is Running - Safar Makkah Tours");
 });
 
-// Send single message
+// send single message
 app.post("/send-message", async (req, res) => {
   const { number, message } = req.body;
   if (!number || !message) {
@@ -156,23 +169,55 @@ app.post("/send-message", async (req, res) => {
   res.json({ success: true, number, message });
 });
 
-// Send media message
-app.post("/send-media", async (req, res) => {
-  const { number, message, mediaPath } = req.body;
-  await sendMessage(number, message, mediaPath);
-  res.json({ success: true, media: mediaPath });
+// send media message (accepts a local file path (uploaded) or remote url)
+app.post("/send-media", upload.single('file'), async (req, res) => {
+  try {
+    const { number, message } = req.body;
+    let mediaPath = req.body.mediaPath || null;
+
+    // if file uploaded via form-data as 'file' -> upload to cloud and use that URL
+    if (req.file) {
+      const secureUrl = await uploadMediaToCloud(req.file.path);
+      // optional: delete uploaded temp file
+      await fse.remove(req.file.path).catch(() => { });
+      mediaPath = secureUrl;
+    }
+
+    await sendMessage(number, message, mediaPath);
+    res.json({ success: true, media: mediaPath });
+  } catch (err) {
+    console.error('send-media error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Broadcast from CSV
+// broadcast from CSV - expects form-data file field named 'file'
 app.post("/broadcast", upload.single("file"), async (req, res) => {
-  const { message, mediaPath } = req.body;
-  const filePath = req.file.path;
-  broadcastFromCSV(filePath, message, mediaPath);
-  sendLogToDashboard(`🚀 Broadcast started: ${filePath}`);
-  res.json({ success: true, info: "Broadcast started", file: filePath });
+  try {
+    const { message, mediaPath } = req.body;
+    if (!req.file) return res.status(400).json({ error: "CSV file required in 'file' field" });
+
+    const filePath = req.file.path; // multer diskStorage gives us a path
+    broadcastFromCSV(filePath, message, mediaPath)
+      .then(async () => {
+        // delete temp csv (cleanup)
+        await fse.remove(filePath).catch(() => { });
+        sendLogToDashboard(`🚀 Broadcast completed: ${filePath}`);
+      })
+      .catch((err) => {
+        console.error('Broadcast error:', err.message);
+        sendLogToDashboard(`❌ Broadcast error: ${err.message}`);
+      });
+
+    sendLogToDashboard(`🚀 Broadcast started: ${filePath}`);
+    res.json({ success: true, info: "Broadcast started", file: filePath });
+  } catch (err) {
+    console.error('broadcast route error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// WhatsApp status
+// whatsapp status
 app.get("/status", async (req, res) => {
   res.json({
     connected: client.info ? true : false,
@@ -180,11 +225,9 @@ app.get("/status", async (req, res) => {
   });
 });
 
-//
-// ─── SERVER START ─────────────────────────────────────────────────
-//
-server.listen(process.env.PORT, () => {
-  console.log(`✅ Server & Socket.io running on port ${process.env.PORT}`);
+// SERVER START
+server.listen(process.env.PORT || 5000, () => {
+  console.log(`✅ Server & Socket.io running on port ${process.env.PORT || 5000}`);
 });
 
 export { sendLogToDashboard };
