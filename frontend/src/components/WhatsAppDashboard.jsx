@@ -340,13 +340,13 @@ const WhatsAppDashboard = () => {
           {/* Logs */}
           <section className="bg-white p-5 rounded-2xl shadow-sm md:col-span-2">
             <h2 className="font-semibold mb-2">Server Logs</h2>
-            <div className="bg-black text-white p-3 rounded-md h-56 overflow-auto text-xs">
+            <div className="bg-blue-300 text-white p-3 rounded-md h-200 overflow-auto text-lg">
               {logs.length === 0 && (
                 <div className="text-gray-400">No activity yet.</div>
               )}
               {logs.map((l, i) => (
                 <div key={i}>
-                  <strong>[{l.ts}]</strong> {l.text}
+                  <strong>[{l.ts}]</strong> <h4 className="bg-blue-100 border rounded-2xl text-gray-600 m-2 p-4"> {l.text} </h4>
                 </div>
               ))}
             </div>
