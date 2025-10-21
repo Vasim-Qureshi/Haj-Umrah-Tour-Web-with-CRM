@@ -1,345 +1,334 @@
-// whatsapp.js
-import pkg from 'whatsapp-web.js';
-// import qrcode from 'qrcode-terminal';
-import fs from 'fs';
-import fse from 'fs-extra';
-import path from 'path';
-import csv from 'csv-parser';
-import archiver from 'archiver';
-import AdmZip from 'adm-zip';
-import axios from 'axios';
-import { sendLogToDashboard } from './server.js';
-import cloudinaryPackage from 'cloudinary';
+// server/whatsapp.js
+import pkg from "whatsapp-web.js";
+// import qrcode from "qrcode-terminal";
+import fs from "fs";
+import fse from "fs-extra";
+import path from "path";
+import csv from "csv-parser";
+import archiver from "archiver";
+import AdmZip from "adm-zip";
+import axios from "axios";
+import { sendLogToDashboard } from "./server.js";
+import cloudinary from "./config/cloudinary.js"; // ✅ from separate config
+import mime from "mime-types"; // ✅ install via: npm install mime-types
 
 const { Client, LocalAuth, MessageMedia } = pkg;
-const cloudinary = cloudinaryPackage.v2;
 
-// configure cloudinary using env vars
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const AUTH_LOCAL_DIR = path.resolve(".wwebjs_auth");
+const CACHE_LOCAL_DIR = path.resolve(".wwebjs_cache");
+const TEMP_DIR = path.resolve("tmp");
+const AUTH_ZIP_LOCAL = path.join(TEMP_DIR, "wwebjs_auth.zip");
+const CLOUDFOLDER = process.env.CLOUDINARY_AUTH_FOLDER || "whatsapp_auth";
+const AUTH_PUBLIC_ID = process.env.CLOUDINARY_AUTH_PUBLIC_ID || "wwebjs_auth_backup";
 
-const AUTH_LOCAL_DIR = path.resolve(process.cwd(), '.wwebjs_auth');   // LocalAuth dir
-const CACHE_LOCAL_DIR = path.resolve(process.cwd(), '.wwebjs_cache'); // Cache dir
-const TEMP_DIR = path.resolve(process.cwd(), 'tmp');
-const AUTH_ZIP_LOCAL = path.join(TEMP_DIR, 'wwebjs_auth.zip');
-
-const CLOUDFOLDER = process.env.CLOUDINARY_AUTH_FOLDER || 'whatsapp_auth';
-const AUTH_PUBLIC_ID = process.env.CLOUDINARY_AUTH_PUBLIC_ID || 'wwebjs_auth_backup';
-
-// ensure tmp exists
 fse.ensureDirSync(TEMP_DIR);
 
-// helper: download a remote file (by url) to local path
-async function downloadFile(url, destPath) {
-  const writer = fs.createWriteStream(destPath);
-  const res = await axios({
-    url,
-    method: 'GET',
-    responseType: 'stream',
-  });
+// ------------------ Helper Functions ------------------
+async function downloadFile(url, dest) {
+  const writer = fs.createWriteStream(dest);
+  const res = await axios({ url, method: "GET", responseType: "stream" });
   return new Promise((resolve, reject) => {
     res.data.pipe(writer);
-    let error = null;
-    writer.on('error', (err) => {
-      error = err;
-      writer.close();
-      reject(err);
-    });
-    writer.on('close', () => {
-      if (!error) resolve(destPath);
-    });
+    writer.on("close", () => resolve(dest));
+    writer.on("error", reject);
   });
 }
 
-// unzip into destination (overwrites)
 function extractZip(zipPath, dest) {
   if (!fs.existsSync(zipPath)) return;
   const zip = new AdmZip(zipPath);
   zip.extractAllTo(dest, true);
 }
 
-// zip specific dirs into a zip file
-function zipAuthFiles(outputPath) {
+function zipAuthFiles(outPath) {
   return new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(outputPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
-
-    output.on('close', () => resolve(outputPath));
-    archive.on('error', (err) => reject(err));
-
+    const output = fs.createWriteStream(outPath);
+    const archive = archiver("zip", { zlib: { level: 9 } });
     archive.pipe(output);
-
-    if (fs.existsSync(AUTH_LOCAL_DIR)) {
-      archive.directory(AUTH_LOCAL_DIR, '.wwebjs_auth');
-    }
-    if (fs.existsSync(CACHE_LOCAL_DIR)) {
-      archive.directory(CACHE_LOCAL_DIR, '.wwebjs_cache');
-    }
-
+    if (fs.existsSync(AUTH_LOCAL_DIR)) archive.directory(AUTH_LOCAL_DIR, ".wwebjs_auth");
+    if (fs.existsSync(CACHE_LOCAL_DIR)) archive.directory(CACHE_LOCAL_DIR, ".wwebjs_cache");
+    output.on("close", () => resolve(outPath));
+    archive.on("error", reject);
     archive.finalize();
   });
 }
 
-// upload zip to cloudinary (resource_type 'raw')
 async function uploadAuthToCloud() {
   try {
-    await fse.ensureDir(TEMP_DIR);
-    if (fs.existsSync(AUTH_ZIP_LOCAL)) await fse.remove(AUTH_ZIP_LOCAL);
     await zipAuthFiles(AUTH_ZIP_LOCAL);
-
     const res = await cloudinary.uploader.upload(AUTH_ZIP_LOCAL, {
-      resource_type: 'raw',
+      resource_type: "raw",
       public_id: AUTH_PUBLIC_ID,
       folder: CLOUDFOLDER,
       overwrite: true,
-      use_filename: false,
     });
-    sendLogToDashboard(`☁️ Auth uploaded to Cloudinary: ${res.public_id}`);
-    console.log('☁️ Auth uploaded to Cloudinary', res.public_id);
-    return res;
+    console.log("☁️ Auth uploaded:", res.public_id);
+    sendLogToDashboard("☁️ WhatsApp session uploaded to Cloudinary");
   } catch (err) {
-    console.error('❌ uploadAuthToCloud error:', err.message);
-    sendLogToDashboard(`❌ uploadAuthToCloud error: ${err.message}`);
-    throw err;
+    console.error("❌ Auth upload error:", err.message);
   }
 }
 
-// download auth zip from Cloudinary (if exists) and extract to local
 async function downloadAuthFromCloudIfExists() {
   try {
-    // try to get resource info
-    const publicId = `${CLOUDFOLDER}/${AUTH_PUBLIC_ID}`.replace(/^\/+/, '');
-    let resource;
-    try {
-      resource = await cloudinary.api.resource(publicId, { resource_type: 'raw' });
-    } catch (err) {
-      // resource not found
-      console.log('ℹ️ No auth backup found in Cloudinary yet.');
-      return false;
-    }
-
-    const url = resource.secure_url || resource.url;
-    console.log('⬇️ Downloading auth zip from Cloudinary:', url);
+    const res = await cloudinary.api.resource(`${CLOUDFOLDER}/${AUTH_PUBLIC_ID}`, {
+      resource_type: "raw",
+    });
+    const url = res.secure_url;
+    console.log("⬇️ Downloading auth backup...");
     await downloadFile(url, AUTH_ZIP_LOCAL);
-
-    // extract to project root (will create .wwebjs_auth & .wwebjs_cache)
     extractZip(AUTH_ZIP_LOCAL, process.cwd());
-    console.log('✅ Extracted auth zip to project dir');
-    sendLogToDashboard('✅ Downloaded & extracted WhatsApp auth from Cloudinary.');
-    return true;
-  } catch (err) {
-    console.error('❌ downloadAuthFromCloudIfExists error:', err.message);
-    sendLogToDashboard(`❌ downloadAuthFromCloudIfExists error: ${err.message}`);
-    return false;
+    console.log("✅ Auth restored locally.");
+    sendLogToDashboard("✅ WhatsApp session restored from Cloudinary");
+  } catch {
+    console.log("ℹ️ No previous auth found in Cloudinary.");
   }
 }
 
-// upload a media file (path or buffer) to Cloudinary and return the secure_url
-async function uploadMediaToCloud(localPathOrBuffer, filename = null) {
-  try {
-    // if buffer passed in, use upload_stream
-    if (Buffer.isBuffer(localPathOrBuffer)) {
-      return new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          { resource_type: 'auto', folder: 'whatsapp_media' },
-          (error, result) => {
-            if (error) return reject(error);
-            resolve(result.secure_url);
-          }
-        );
-        uploadStream.end(localPathOrBuffer);
-      });
-    } else {
-      // path
-      const res = await cloudinary.uploader.upload(localPathOrBuffer, {
-        resource_type: 'auto',
-        folder: 'whatsapp_media',
-        use_filename: true,
-        unique_filename: false,
-      });
-      return res.secure_url;
-    }
-  } catch (err) {
-    console.error('❌ uploadMediaToCloud error:', err.message);
-    throw err;
-  }
+async function uploadMediaToCloud(localPath) {
+  const res = await cloudinary.uploader.upload(localPath, {
+    resource_type: "auto",
+    folder: "whatsapp_media",
+  });
+  return res.secure_url;
 }
 
-// download from a remote URL (cloudinary url) and return Buffer (if needed)
-async function downloadUrlAsBuffer(url) {
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(response.data, 'binary');
-}
-
-// ensure auth backup from cloud is present locally BEFORE initializing client
+// ------------------ WhatsApp Client ------------------
 await downloadAuthFromCloudIfExists();
 
-// create client (LocalAuth will use default folder .wwebjs_auth)
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'default' }), // adjust clientId if multiple clients
+  authStrategy: new LocalAuth({ clientId: "default" }),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   },
 });
 
-// event: QR
-client.on('qr', (qr) => {
-  console.log('📱 QR Code generated');
-  sendLogToDashboard('📱 QR Code generated, sending to client...');
-  global.io.emit('qr', qr);
-  // optional: qrcode-terminal
+client.on("qr", (qr) => {
+  console.log("📱 QR generated");
+  sendLogToDashboard("📱 QR code generated — Scan it to login");
+  global.io.emit("qr", qr);
   // qrcode.generate(qr, { small: true });
 });
 
-// event: ready
-client.on('ready', async () => {
-  console.log('✅ WhatsApp Client is Ready!');
-  sendLogToDashboard('✅ WhatsApp client is connected.');
-  // upload auth to cloud whenever ready (session established)
-  try {
-    await uploadAuthToCloud();
-  } catch (err) {
-    console.error('Error uploading auth after ready:', err.message);
-  }
+client.on("ready", async () => {
+  console.log("✅ WhatsApp ready");
+  sendLogToDashboard("✅ WhatsApp client ready");
 });
 
-// event: authenticated (fired when auth successful)
-client.on('authenticated', async (session) => {
-  console.log('🔐 Authenticated!');
-  sendLogToDashboard('🔐 WhatsApp authenticated - saving auth to Cloudinary.');
-  try {
-    await uploadAuthToCloud();
-  } catch (err) {
-    console.error('Error uploading auth after authenticated:', err.message);
-  }
+client.on("authenticated", async () => {
+  await uploadAuthToCloud();
 });
 
-// event: auth_failure
-client.on('auth_failure', (msg) => {
-  console.error('❌ Auth failure', msg);
-  sendLogToDashboard(`❌ WhatsApp auth failure: ${msg}`);
-});
+client.on("message", async (msg) => {
+  console.log(`📩 ${msg.from}: ${msg.body}`);
+  sendLogToDashboard(`📩 ${msg.from}: ${msg.body}`);
 
-// optional: state change (to detect session state)
-client.on('auth_state_change', async (state) => {
-  // state contains keys added/removed etc. we can upload on changes if needed
-  console.log('🔁 auth_state_change', state);
-  sendLogToDashboard('🔁 WhatsApp auth state changed, uploading backup.');
-  // Debounce or small delay to allow local files to be written
-  setTimeout(() => uploadAuthToCloud().catch((e) => console.error(e.message)), 2000);
-});
-
-// Auto reply + message handling
-client.on('message', async (msg) => {
-  console.log(`📩 Message from ${msg.from}: ${msg.body}`);
-  sendLogToDashboard(`📩 Incoming from ${msg.from}: ${msg.body}`);
-
-  try {
-    if (msg.body && msg.body.toLowerCase().includes('umrah')) {
-      await msg.reply(
-        '🌙 *Assalamu Alaikum!* 🙏\nWelcome to *Safar Makkah Hajj Umrah Travels*\n\n📅 November 2025 Umrah Packages from Jaipur available now!\n\nReply *Package* to get Brochure or *Plan* for Plan prices.'
-      );
+  // Trigger word (you can change it)
+  if (msg.body.toLowerCase() === "package") {
+    // 📦 Detect file to send
+    const filePath = "./files/umrah-brochure.mp4"; // change extension as needed (.jpg, .mp4, .pdf)
+    if (!fs.existsSync(filePath)) {
+      await msg.reply("❌ Brochure not found!");
+      return;
     }
-    if (msg.body && msg.body.toLowerCase() === 'package') {
-      await msg.reply('📄 Sending you the Umrah Brochure...');
-      const brochurePath = './files/umrah-brochure.pdf';
-      if (!fs.existsSync(brochurePath)) {
-        await msg.reply('❌ Brochure file not found. Please contact support to 9024710909.');
+
+    try {
+      // ✅ Detect MIME type safely
+      const mimeType = mime.lookup(filePath) || "application/octet-stream";
+      const fileName = path.basename(filePath);
+      const stats = fs.statSync(filePath);
+      const maxSize = mimeType.includes("video") ? 16 : 100; // MB limit check
+
+      if (stats.size > maxSize * 1024 * 1024) {
+        await msg.reply(`⚠️ File too large for WhatsApp (max ${maxSize}MB).`);
         return;
-      } else {
-        // Upload brochure to Cloudinary (once) and then send via URL
-        const url = await uploadMediaToCloud(brochurePath);
-        // MessageMedia.fromUrl can accept a URL
-        const media = await MessageMedia.fromUrl(url);
-        await client.sendMessage(msg.from, media);
-        await msg.reply('✅ Brochure sent successfully!');
       }
+
+      // ✅ Convert to base64
+      const fileData = fs.readFileSync(filePath);
+      const base64 = fileData.toString("base64");
+
+      const media = new MessageMedia(mimeType, base64, fileName);
+
+      // ✅ Choose send type
+      const isDocument =
+        mimeType.includes("pdf") ||
+        mimeType.includes("msword") ||
+        mimeType.includes("officedocument");
+      const isVideo = mimeType.includes("video");
+
+      if (isDocument) {
+        await client.sendMessage(msg.from, media, {
+          caption: "📄 Here’s your brochure!",
+          sendMediaAsDocument: true,
+        });
+      } else if (isVideo) {
+        await client.sendMessage(msg.from, media, {
+          caption: "🎬 Here’s your video package!",
+          sendMediaAsDocument: false,
+        });
+      } else {
+        await client.sendMessage(msg.from, media, { caption: "🖼️ Brochure sent!" });
+      }
+
+      // await msg.reply("✅ Brochure sent successfully!");
+      sendLogToDashboard(`✅ Brochure (${mimeType}) sent to ${msg.from}`);
+    } catch (err) {
+      console.error("❌ Error sending brochure:", err);
+      await msg.reply("❌ Error sending brochure. Check logs.");
+      sendLogToDashboard(`❌ Brochure send error: ${err.message}`);
     }
-    if (msg.body && msg.body.toLowerCase() === 'plan') {
-      await msg.reply(
-        '📊 *Umrah November 2025 Rates (Jaipur → Jaipur)*\n\nBudget Plan: ₹74,000\nEconomy Plan: ₹77,000\nSemi-Deluxe Plan: ₹89,500\nDeluxe Plan: ₹93,000\n\nIncludes Flight and Bus Tickets, Hotel, Visa & Ziyarat and Others.'
-      );
-    }
-  } catch (err) {
-    console.error('Error handling incoming message:', err.message);
-    sendLogToDashboard(`❌ Error handling incoming message: ${err.message}`);
   }
 });
 
-// Send single message (number without @c.us)
 const sendMessage = async (number, message, mediaPath = null) => {
+  const chatId = `${number}@c.us`;
+
   try {
-    const chatId = `${number}@c.us`;
     if (mediaPath) {
-      // if local file exists -> upload to cloud and send via URL
-      let media;
-      if (fs.existsSync(mediaPath)) {
-        const url = await uploadMediaToCloud(mediaPath);
-        media = await MessageMedia.fromUrl(url);
-        await client.sendMessage(chatId, media, { caption: message });
-      } else if (mediaPath.startsWith('http')) {
-        media = await MessageMedia.fromUrl(mediaPath);
-        await client.sendMessage(chatId, media, { caption: message });
-      } else {
-        // not found
-        await client.sendMessage(chatId, message);
-        console.warn('Media path not found locally and not URL:', mediaPath);
+      // ✅ Ensure file exists locally first
+      if (!fs.existsSync(mediaPath)) throw new Error(`File not found: ${mediaPath}`);
+
+      // ✅ Get MIME type safely
+      const mimeType = mime.lookup(mediaPath) || "application/octet-stream";
+      const fileName = path.basename(mediaPath);
+
+      // ✅ Check size limits
+      const stats = fs.statSync(mediaPath);
+      const maxSize = mimeType.includes("video") ? 16 : 100; // MB limit
+      if (stats.size > maxSize * 1024 * 1024) {
+        throw new Error(`File too large for WhatsApp (${maxSize} MB limit).`);
       }
+
+      // ✅ Read and convert to base64
+      const fileBuffer = fs.readFileSync(mediaPath);
+      const base64 = fileBuffer.toString("base64");
+
+      const media = new MessageMedia(mimeType, base64, fileName);
+
+      // ✅ Detect type
+      const isDocument =
+        mimeType.includes("pdf") ||
+        mimeType.includes("msword") ||
+        mimeType.includes("officedocument");
+      const isVideo = mimeType.includes("video");
+
+      console.log(`📤 Sending ${mimeType} to ${number}...`);
+
+      // ✅ Send accordingly
+      if (isDocument) {
+        await client.sendMessage(chatId, media, {
+          caption: message,
+          sendMediaAsDocument: true,
+        });
+      } else if (isVideo) {
+        await client.sendMessage(chatId, media, {
+          caption: message,
+          sendMediaAsDocument: false,
+        });
+      } else {
+        await client.sendMessage(chatId, media, { caption: message });
+      }
+
+      sendLogToDashboard(`✅ Sent ${fileName} (${mimeType}) to ${number}`);
     } else {
       await client.sendMessage(chatId, message);
+      sendLogToDashboard(`✅ Sent text to ${number}`);
     }
-    sendLogToDashboard(`📩 Sent message to ${number}: ${message}`);
-    console.log(`✅ Message sent to ${number}`);
   } catch (err) {
-    sendLogToDashboard(`❌ Failed to send message to ${number}: ${err.message}`);
-    console.error(`❌ Failed to send message to ${number}:`, err.message);
+    console.error("❌ Send error:", err);
+    sendLogToDashboard(`❌ Send error: ${err.message}`);
   }
 };
 
-// Broadcast messages from CSV (expects CSV with header `number`)
-const broadcastFromCSV = async (filePath, message, mediaPath = null) => {
+const broadcastFromCSV = async (csvPath, message, mediaPath = null) => {
   const contacts = [];
-  return new Promise((resolve, reject) => {
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on('data', (row) => contacts.push(row))
-      .on('end', async () => {
-        console.log(`📤 Sending messages to ${contacts.length} contacts...`);
-        for (const contact of contacts) {
-          if (!contact.number) continue;
-          await sendMessage(contact.number, message, mediaPath);
-          await new Promise((r) => setTimeout(r, 3000)); // 3s delay
+
+  fs.createReadStream(csvPath)
+    .pipe(csv())
+    .on("data", (r) => contacts.push(r))
+    .on("end", async () => {
+      console.log(`📤 Broadcasting to ${contacts.length} contacts`);
+      sendLogToDashboard(`📤 Starting broadcast to ${contacts.length} contacts`);
+
+      // ✅ Preload media once (for efficiency)
+      let media = null;
+      let mimeType = null;
+
+      if (mediaPath && fs.existsSync(mediaPath)) {
+        try {
+          mimeType = mime.lookup(mediaPath) || "application/octet-stream";
+          const fileBuffer = fs.readFileSync(mediaPath);
+          const base64 = fileBuffer.toString("base64");
+          const fileName = path.basename(mediaPath);
+
+          // File size validation
+          const stats = fs.statSync(mediaPath);
+          const maxSize = mimeType.includes("video") ? 16 : 100; // MB limits
+          if (stats.size > maxSize * 1024 * 1024) {
+            console.error(`❌ ${fileName} exceeds WhatsApp limit (${maxSize}MB).`);
+            sendLogToDashboard(`❌ File too large: ${fileName}`);
+            media = null;
+          } else {
+            media = new MessageMedia(mimeType, base64, fileName);
+            console.log(`✅ Media loaded (${mimeType})`);
+          }
+        } catch (err) {
+          console.error("❌ Error preparing media:", err);
+          sendLogToDashboard(`❌ Error preparing media: ${err.message}`);
+          media = null;
         }
-        sendLogToDashboard(`✅ Broadcast Completed!`);
-        console.log('✅ Broadcast Completed!');
-        resolve(true);
-      })
-      .on('error', (err) => {
-        console.error('❌ CSV read error', err.message);
-        reject(err);
-      });
-  });
+      }
+
+      // ✅ Send sequentially with delay
+      for (const c of contacts) {
+        const number = c.number?.trim();
+        if (!number) continue;
+
+        const chatId = `${number}@c.us`;
+        console.log(`📨 Sending to ${number}...`);
+
+        try {
+          if (media) {
+            const isDocument =
+              mimeType.includes("pdf") ||
+              mimeType.includes("msword") ||
+              mimeType.includes("officedocument");
+            const isVideo = mimeType.includes("video");
+
+            if (isDocument) {
+              await client.sendMessage(chatId, media, {
+                caption: message,
+                sendMediaAsDocument: true,
+              });
+            } else if (isVideo) {
+              await client.sendMessage(chatId, media, {
+                caption: message,
+                sendMediaAsDocument: false,
+              });
+            } else {
+              await client.sendMessage(chatId, media, { caption: message });
+            }
+          } else {
+            await client.sendMessage(chatId, message);
+          }
+
+          sendLogToDashboard(`✅ Sent to ${number}`);
+        } catch (err) {
+          console.error(`❌ Send error for ${number}:`, err.message);
+          sendLogToDashboard(`❌ Send error for ${number}: ${err.message}`);
+        }
+
+        // ✅ Add delay between messages to avoid rate-limit
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+
+      sendLogToDashboard("✅ Broadcast complete!");
+      console.log("✅ Broadcast complete!");
+    });
 };
 
-// initialize client
 client.initialize();
 
-// ensure we upload auth on process exit (graceful)
-async function gracefulShutdown() {
-  try {
-    console.log('🛑 Graceful shutdown triggered - uploading auth backup...');
-    await uploadAuthToCloud();
-  } catch (err) {
-    console.error('Error uploading auth on shutdown:', err.message);
-  } finally {
-    process.exit();
-  }
-}
-process.on('SIGINT', gracefulShutdown);
-process.on('SIGTERM', gracefulShutdown);
-
-export { sendMessage, broadcastFromCSV, client, uploadAuthToCloud, downloadAuthFromCloudIfExists, uploadMediaToCloud };
+export { client, sendMessage, broadcastFromCSV };
