@@ -1,6 +1,6 @@
 import pkg from "whatsapp-web.js";
 import { sendLogToDashboard } from "./server.js";
-import { uploadAuthToCloud, downloadAuthFromCloudIfExists } from "./utils/whatsApp/authHelpers.js";
+import { uploadAuthToCloud, downloadAuthFromCloudIfExists } from "./utils/whatsapp/authHelpers.js";
 import { sendMessage, broadcastFromCSV, setClient } from "./utils/whatsapp/messegeHelpers.js";
 import fs from "fs";
 import mime from "mime-types";
