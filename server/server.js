@@ -24,6 +24,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://umrah-crm.vercel.app",
   "https://umrah-crm-v2.vercel.app",
+  "https://umrah.globalinfotechnology.in"
 ];
 
 app.use(
