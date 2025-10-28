@@ -2,6 +2,10 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import WhatsAppDashboard from "./components/WhatsAppDashboard.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import AuthModal from "./pages/AuthModal.jsx";
+import PaymentDetails from "./components/PaymentDetails.jsx";
+import PackageDetailTable from "./components/PackageDetails.jsx";
+import LeadDetailPage from "./pages/LeadDetailPage.jsx";
+import TicketDetails from "./components/TicketDeatails.jsx";
 
 function App() {
   return (
@@ -19,6 +23,8 @@ function App() {
       </nav>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/leaddetail" element={<LeadDetailPage />} />
+        <Route path="/ticket" element={<TicketDetails />} />
         <Route path="/whatsapp" element={<WhatsAppDashboard />} />
         <Route path="/login" element={<AuthModal />} />
       </Routes>
