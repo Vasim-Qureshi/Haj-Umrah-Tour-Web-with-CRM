@@ -1,0 +1,18 @@
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 0000000..0000000 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -171,6 +171,13 @@
+             mediaOptions.isViewOnce = options.isViewOnce;
+             delete options.media;
+             delete options.sendMediaAsSticker;
++            // Fix: mediaOptions (from processMediaData) carries an internal
++            // __x_id property. Spreading it into the outgoing Msg below
++            // overwrites the real message id (newMsgKey), which later
++            // crashes getValidatedSender() with:
++            // "Data passed to getter must include an id property".
++            // See wwebjs/whatsapp-web.js#201922 / PR #201923.
++            delete mediaOptions.__x_id;
+         }
+ 
+         let quotedMsgOptions = {};

@@ -16,6 +16,7 @@ dist-ssr
 .wwebjs_cache
 server/.wwebjs_auth/
 server/.wwebjs_cache/
+tmp
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

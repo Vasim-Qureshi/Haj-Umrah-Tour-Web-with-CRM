@@ -11,7 +11,13 @@ import cloudinary from "./config/cloudinary.js"; // ✅ Cloudinary Config
 import Booking from "./models/bookingSchema.js";
 import authRoutes from "./routes/authRoutes.js";
 import { requireAuth, requireRole } from "./middlewares/authMiddleware.js";
-import {client, sendMessage, broadcastFromCSV } from "./whatsApp.js"; // ✅ WhatsApp Integration
+import {
+  client,
+  sendMessage,
+  broadcastFromCSV,
+  isReady,
+  getStatus,
+} from "./whatsApp.js"; // ✅ WhatsApp Integration
 
 dotenv.config();
 const dbConn = dbConnection; // connect to MongoDB
@@ -24,7 +30,6 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://umrah-crm.vercel.app",
   "https://umrah-crm-v2.vercel.app",
-  "https://umrah.globalinfotechnology.in"
 ];
 
 app.use(
@@ -82,13 +87,22 @@ app.post("/send-media", upload.single("file"), async (req, res) => {
     if (!number || !message)
       return res.status(400).json({ error: "number and message required" });
 
+    // Don't queue a send while window.WWebJS is missing from the page —
+    // that is what produced the "Cannot read properties of undefined
+    // (reading 'getChat')" crash.
+    if (!isReady())
+      return res.status(503).json({
+        error: "WhatsApp is not connected yet. Scan the QR code and retry.",
+        status: await getStatus(),
+      });
+
     const mediaPath = req.file?.path || null;
-    await sendMessage(number, message, mediaPath);
+    const sent = await sendMessage(number, message, mediaPath);
     sendLogToDashboard(`📤 Message sent to ${number}`);
-    res.json({ success: true, number, message, mediaPath });
+    res.json({ success: true, number, message, mediaPath, id: sent?.id?._serialized || null });
   } catch (err) {
     console.error("❌ Send-media error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -108,7 +122,17 @@ app.post("/broadcast", upload.fields([
           .status(400)
           .json({ error: "CSV file and message required" });
 
-      broadcastFromCSV(csvPath, message, mediaPath);
+      if (!isReady())
+        return res.status(503).json({
+          error: "WhatsApp is not connected yet. Scan the QR code and retry.",
+          status: await getStatus(),
+        });
+
+      // Runs in the background; errors are surfaced on the dashboard log.
+      broadcastFromCSV(csvPath, message, mediaPath).catch((err) => {
+        console.error("❌ Broadcast failed:", err.message);
+        sendLogToDashboard(`❌ Broadcast failed: ${err.message}`);
+      });
       sendLogToDashboard(
         `🚀 Broadcast started: ${csvPath} ${
           mediaPath ? "(with media)" : "(text only)"
@@ -123,10 +147,12 @@ app.post("/broadcast", upload.fields([
 );
 
 // ✅ WhatsApp client status
-app.get("/status", (req, res) => {
+app.get("/status", async (req, res) => {
+  const status = await getStatus();
   res.json({
-    connected: !!client.info,
-    user: client.info || null,
+    connected: status.ready && status.injected,
+    ...status,
+    info: client.info || null,
   });
 });
 
